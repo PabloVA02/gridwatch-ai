@@ -1,9 +1,27 @@
+import json
 from dataclasses import dataclass
+from hashlib import sha256
 
 import numpy as np
 from sklearn.ensemble import IsolationForest
 
 from app.models import EnergyReading
+
+DETECTOR_NAME = "IsolationForest"
+DETECTOR_VERSION = "1.1.0"
+FEATURE_SCHEMA_VERSION = "energy-telemetry-v1"
+FEATURE_NAMES = (
+    "energy_kwh",
+    "voltage",
+    "temperature_c",
+    "energy_delta_kwh",
+    "hour_sin",
+    "hour_cos",
+)
+MODEL_PARAMETERS = {
+    "n_estimators": 250,
+    "random_state": 42,
+}
 
 
 @dataclass(frozen=True)
@@ -46,17 +64,15 @@ def _explain(reading: EnergyReading, readings: list[EnergyReading]) -> str:
     return f"Unusual {dominant_feature} compared with this device's selected time window."
 
 
-def detect_anomalies(
-    readings: list[EnergyReading], contamination: float = 0.1
-) -> list[Detection]:
+def detect_anomalies(readings: list[EnergyReading], contamination: float = 0.1) -> list[Detection]:
     if not readings:
         return []
 
     matrix = _feature_matrix(readings)
     model = IsolationForest(
-        n_estimators=250,
+        n_estimators=MODEL_PARAMETERS["n_estimators"],
         contamination=contamination,
-        random_state=42,
+        random_state=MODEL_PARAMETERS["random_state"],
         n_jobs=-1,
     )
     labels = model.fit_predict(matrix)
@@ -68,3 +84,26 @@ def detect_anomalies(
         if label == -1
     ]
     return sorted(detections, key=lambda result: result.score, reverse=True)
+
+
+def analysis_fingerprint(readings: list[EnergyReading], contamination: float) -> str:
+    """Return a reproducible fingerprint for the data and detector configuration."""
+    payload = {
+        "detector": DETECTOR_NAME,
+        "detector_version": DETECTOR_VERSION,
+        "feature_schema_version": FEATURE_SCHEMA_VERSION,
+        "features": FEATURE_NAMES,
+        "parameters": {**MODEL_PARAMETERS, "contamination": contamination},
+        "readings": [
+            {
+                "device_id": item.device_id,
+                "observed_at": item.observed_at.isoformat(),
+                "energy_kwh": item.energy_kwh,
+                "voltage": item.voltage,
+                "temperature_c": item.temperature_c,
+            }
+            for item in readings
+        ],
+    }
+    canonical_payload = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return sha256(canonical_payload.encode()).hexdigest()

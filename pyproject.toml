@@ -1,6 +1,6 @@
 [project]
 name = "gridwatch-ai"
-version = "1.0.0"
+version = "1.1.0"
 description = "Energy telemetry API with explainable anomaly detection"
 readme = "README.md"
 requires-python = ">=3.11"

@@ -18,6 +18,8 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://gridwatch:gridwatch-local@database:5432/gridwatch
       MINIMUM_ANALYSIS_POINTS: 12
+      MINIMUM_MONITORING_POINTS: 300
+      MAXIMUM_MONITORING_POINTS: 50000
     ports:
       - "8000:8000"
     depends_on:

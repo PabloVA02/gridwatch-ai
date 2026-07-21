@@ -25,9 +25,7 @@ def upgrade() -> None:
         sa.UniqueConstraint("device_id", "observed_at", name="uq_reading_device_time"),
     )
     op.create_index("ix_energy_readings_device_id", "energy_readings", ["device_id"])
-    op.create_index(
-        "ix_reading_device_time", "energy_readings", ["device_id", "observed_at"]
-    )
+    op.create_index("ix_reading_device_time", "energy_readings", ["device_id", "observed_at"])
 
 
 def downgrade() -> None:

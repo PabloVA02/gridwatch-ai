@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from sqlalchemy import text
@@ -11,18 +12,26 @@ from app.database import Base, engine, get_db
 from app.schemas import (
     AnalysisRequest,
     AnalysisResponse,
+    AnalysisRunResponse,
     DeviceSummary,
+    DriftRequest,
+    DriftResponse,
     HealthResponse,
     ReadingBatch,
     ReadingResponse,
+    normalize_device_id,
+    normalize_utc_datetime,
 )
 from app.service import (
     DuplicateReadingError,
     InsufficientDataError,
+    MonitoringWindowError,
     analyse_device,
     create_readings,
     device_summaries,
+    get_analysis_run,
     list_readings,
+    monitor_device,
 )
 
 settings = get_settings()
@@ -36,7 +45,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="1.0.0",
+    version="1.1.0",
     summary="Energy telemetry and anomaly detection API",
     description=(
         "Stores time-series energy readings and detects operational anomalies "
@@ -76,9 +85,25 @@ def get_readings(
     end_at: datetime | None = None,
     limit: int = Query(default=200, ge=1, le=5_000),
 ) -> list[ReadingResponse]:
+    try:
+        normalized_device_id = normalize_device_id(device_id) if device_id is not None else None
+        normalized_start = normalize_utc_datetime(start_at) if start_at is not None else None
+        normalized_end = normalize_utc_datetime(end_at) if end_at is not None else None
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+    if normalized_start is not None and normalized_end is not None:
+        if normalized_start >= normalized_end:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="The reading window start must be before its end.",
+            )
     return [
         ReadingResponse.model_validate(entity)
-        for entity in list_readings(session, device_id, start_at, end_at, limit)
+        for entity in list_readings(
+            session, normalized_device_id, normalized_start, normalized_end, limit
+        )
     ]
 
 
@@ -91,6 +116,37 @@ def analyse(payload: AnalysisRequest, session: DbSession) -> AnalysisResponse:
     try:
         return analyse_device(session, payload, settings.minimum_analysis_points)
     except InsufficientDataError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+
+
+@app.get(
+    "/api/v1/analysis/runs/{run_id}",
+    response_model=AnalysisRunResponse,
+    tags=["analytics"],
+)
+def analysis_run(run_id: UUID, session: DbSession) -> AnalysisRunResponse:
+    entity = get_analysis_run(session, run_id)
+    if entity is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Analysis run not found.")
+    return AnalysisRunResponse.model_validate(entity)
+
+
+@app.post(
+    "/api/v1/monitoring/drift",
+    response_model=DriftResponse,
+    tags=["monitoring"],
+)
+def monitoring(payload: DriftRequest, session: DbSession) -> DriftResponse:
+    try:
+        return monitor_device(
+            session,
+            payload,
+            settings.minimum_monitoring_points,
+            settings.maximum_monitoring_points,
+        )
+    except MonitoringWindowError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
