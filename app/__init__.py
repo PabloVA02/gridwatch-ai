@@ -1,0 +1,1 @@
+"""GridWatch AI application package."""
