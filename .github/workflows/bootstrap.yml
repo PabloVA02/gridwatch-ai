@@ -1,4 +1,4 @@
-name: Publish GridWatch AI
+name: Clean bootstrap files
 
 on:
   workflow_dispatch:
@@ -7,16 +7,15 @@ permissions:
   contents: write
 
 jobs:
-  publish:
+  clean:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Publish project files
+      - name: Remove temporary archive parts
         run: |
-          cat .bootstrap/part-*.b64 | base64 -d > /tmp/source.tar.gz
-          tar -xzf /tmp/source.tar.gz
+          rm -rf .bootstrap
           git config user.name "PabloVA02"
           git config user.email "PabloVA02@users.noreply.github.com"
           git add -A
-          git commit -m "feat: publish production-ready GridWatch AI"
+          git commit -m "chore: remove temporary publication files"
           git push
